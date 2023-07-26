@@ -1,0 +1,407 @@
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+import seaborn as sns
+import matplotlib.pyplot as plt
+%matplotlib inline
+housing_pd=pd.read_excel(r'\Users\manan\Desktop\vrn trash\data science\project 1 -model to predict the house prices\Dataset 1.xlsx')
+housing_pd.head() 
+
+## Exploring Data
+
+print('Shape of data frame:',housing_pd.shape)  # check the shape of data frame
+print("Column's name :\n", housing_pd.columns )  #print the columns name
+
+housing_pd.info()
+
+missing = pd.DataFrame((housing_pd.isnull().sum())*100/housing_pd.shape[0]).reset_index()
+plt.figure(figsize=(16,5))
+ax=sns.pointplot('index',0,data=missing)
+plt.xticks(rotation = 90, fontsize = 7)
+plt.title("Percentage of Missing value")
+plt.ylabel("PERCENTAGE")
+plt.show()
+#for finding the percentage of missing value
+
+#total_bedrooms has missing values 
+housing_pd.dropna(inplace= True) #dropping the null values
+
+# only 189 value out of 18565 are missing which is approx. 1.01% 
+#therefore we are dropping the values
+
+housing_pd.info()  # missing values eleminated 
+
+housing_pd.describe() 
+
+housing_pd.hist(figsize=(15,8))
+
+# data is skewed in total_rooms, total_bedrooms ,population, households
+
+# Pre-processing
+
+housing_pd['total_rooms'] = np.log(housing_pd['total_rooms']+1) #using log-normal distribution 
+housing_pd['total_bedrooms'] = np.log(housing_pd['total_bedrooms']+1)   
+housing_pd['population'] = np.log(housing_pd['population']+1)
+housing_pd['households'] = np.log(housing_pd['households']+1)
+
+#for getting gaussian curve in total_rooms, total_bedrooms ,population, households.
+
+housing_pd.hist(figsize=(15,8))
+
+
+
+#shuffeling the data set (randomising the data)
+housing_pd_shuffled = housing_pd.sample(n=len(housing_pd), random_state=1)
+housing_pd_shuffled
+
+housing_pd.ocean_proximity.value_counts() #we want to use ocean_proximity but first we have to convert it in numerical value
+
+#creating dummy variables (one hot encoding)
+pd.get_dummies(housing_pd_shuffled['ocean_proximity']).head()
+
+housing_pd_shuffled.drop('ocean_proximity', axis=1).head()
+
+housing_pd_final = pd.concat([housing_pd_shuffled.drop('ocean_proximity', axis=1),
+                              pd.get_dummies(housing_pd_shuffled['ocean_proximity'])],axis=1)
+housing_pd_final
+
+housing_pd_final= housing_pd_final[['longitude','latitude','housing_median_age',
+                                   'total_rooms','total_bedrooms','population',
+                                   'households','median_income',
+                                   '<1H OCEAN','INLAND','ISLAND','NEAR BAY','NEAR OCEAN','median_house_value']]
+housing_pd_final   #shifting the target variable in the end
+
+plt.figure(figsize=(15,8))
+sns.heatmap(housing_pd_final.corr(), annot=True, cmap="YlGnBu")
+
+# median_house_value is highly corelated with median income
+#latitude and longitude is negatively corelated with median house value, which mean houses towards north are cheaper than south
+#median_house_value is negatively corelated to INLAND, which means house price is lower for inland houses and 
+# <1Hocean houses are most expensive
+corr_matrix= housing_pd_final.corr()
+corr_matrix["median_house_value"].sort_values(ascending=False)
+
+plt.figure(figsize=(15,8))
+sns.scatterplot(x="latitude",y="longitude", data=housing_pd_final, hue="median_house_value", palette="coolwarm")
+
+#may be the houses near the coast are more expensive
+
+# Feature Engineering
+
+fet_data = housing_pd_final.copy()
+fet_data
+
+### geopy - geocoders for finding address (dictionary)
+
+from geopy.geocoders import  Nominatim
+geolocator = Nominatim(user_agent= 'geoapiExercises')
+
+geolocator.reverse('37.88'+','+'-122.23').raw['address'] #it gives the address 
+
+def location(cord):
+    Latitude = str(cord[0])
+    Longitude = str(cord[1])
+    
+    location = geolocator.reverse(Latitude+','+Longitude).raw['address'] #raw returns a dictionary
+
+    #if the values are missing , replace by empty string
+    
+    if location.get('leisure') is None:
+        location['leisure']=None
+        
+    if location.get('road') is None:
+        location['road']=None
+        
+    loc_update['leisure'].append( location['leisure'])
+    loc_update['road'].append( location['road'])
+
+#we can use different feature such as road and address for our model
+#but it takes time to update all the address everytime so we are using latitude and longitude for now
+# dictionary also has missing values
+
+
+
+
+fet_data['bedroom_ratio'] = fet_data['total_bedrooms']/fet_data['total_rooms'] 
+#how many rooms are bedrooms
+fet_data['household_rooms'] = fet_data['total_rooms']/fet_data['households']
+#how many rooms are bedrooms
+
+plt.figure(figsize=(15,8))
+sns.heatmap(fet_data.corr(), annot=True, cmap="YlGnBu")
+
+#as we can see that total_bedrooms are not co-related with median_house_value 
+#but bedroom_ratio is negatively corelated with median_house_value 
+
+corr_matrix= fet_data.corr()
+corr_matrix["median_house_value"].sort_values(ascending=False)
+
+# Observations
+
+### -> Data has some missing value -only 189 value out of 18565 are missing which is approx. 1.01% ,therefore we are dropping the values
+
+### ->  Data is skewed in total_rooms, total_bedrooms ,population, households -  using log-normal distribution to help better identify the compount return that the price can expect to achieve over a period of time (for getting gaussian curve)
+
+### -> Converting ocean_proximity in numerical value by creating dummy variables (one hot encoding)
+
+### -> Corelations- median_house_value is highly corelated with median income -- median_house_value is negatively corelated to INLAND, which means house price is lower for inland houses and <1Hocean houses are more expensive -- latitude and longitude is negatively corelated with median house value, which mean houses towards north are cheaper than south, similarly,with east-west and vice-versa.
+
+### -> May be the houses near the coast are more expensive
+
+### -> Feature engineering - as we can see that total_bedrooms are not co-related with median_house_value but bedroom_ratio is negatively corelated with median_house_value 
+
+# Splitting data in train, validation and test set
+
+#spliting data into train , validation and test sets in ratio 70:15:15 
+train_pd, val_pd, test_pd = housing_pd_final[:12865],housing_pd_final[12865:15620], housing_pd_final[15620:]
+len(train_pd), len(val_pd), len(test_pd)
+
+#splitting data in x_train, y_train
+x_train, y_train = train_pd.to_numpy()[:,:-1], train_pd.to_numpy()[:,-1]
+x_val, y_val = val_pd.to_numpy()[:,:-1], val_pd.to_numpy()[:,-1]
+x_test, y_test = test_pd.to_numpy()[:,:-1], test_pd.to_numpy()[:,-1]
+x_train.shape, y_train.shape,x_val.shape, y_val.shape, x_test.shape, y_test.shape
+
+# Scalling of data
+from sklearn.preprocessing import StandardScaler
+import numpy as np
+import pandas as pd
+
+scaler = StandardScaler().fit(x_train[:,:8])
+
+def preprocessor(x):
+    A = np.copy(x)
+    A[:, :8] = scaler.transform(A[:,:8])
+    return A
+
+
+x_train, x_val, x_test = preprocessor(x_train),  preprocessor(x_val),  preprocessor(x_test)
+x_train.shape, y_train.shape,x_val.shape, y_val.shape, x_test.shape, y_test.shape
+
+
+
+pd.DataFrame(x_train).head()
+
+pd.DataFrame(x_train).hist(figsize=(15,8))
+
+# Model Selection
+
+# Linear Regression 
+
+# ((y_hat(x) - y)^2)/n  finding mean square error
+from sklearn.metrics import mean_squared_error as mse
+from sklearn.linear_model import LinearRegression
+
+ln= LinearRegression().fit(x_train, y_train)
+mse(ln.predict(x_train), y_train, squared=False), mse(ln.predict(x_val), y_val, squared=False)
+
+ln.score(x_train, y_train)
+
+ln.score(x_val, y_val)
+
+ln.score(x_test, y_test)
+
+# K nearest neighbours
+
+from sklearn.neighbors import KNeighborsRegressor
+
+knn = KNeighborsRegressor(n_neighbors=10).fit(x_train, y_train)
+mse(knn.predict(x_train), y_train, squared=False), mse(knn.predict(x_val), y_val, squared=False)
+
+
+knn.score(x_train, y_train), knn.score(x_val, y_val), knn.score(x_test, y_test)
+
+from sklearn.model_selection import GridSearchCV  ##Hyperparameter optimisation using RandomizedSearchCV
+
+knear=  KNeighborsRegressor()
+
+param_grid = {
+    "n_neighbors": [3,10,30]}
+grid_search = GridSearchCV(knear, param_grid, cv=5,
+                          scoring='neg_mean_squared_error',
+                          return_train_score=True)
+grid_search.fit(x_train, y_train)
+
+best_neighbor=grid_search.best_estimator_
+best_neighbor
+
+best_neighbor.score(x_test, y_test)
+
+# Random Forest regressor
+
+from sklearn.ensemble import RandomForestRegressor
+rfr = RandomForestRegressor(min_samples_split=4, n_estimators=30).fit(x_train, y_train)
+
+mse(rfr.predict(x_train), y_train, squared=False), mse(rfr.predict(x_val), y_val, squared=False)
+
+
+rfr.score(x_train, y_train), rfr.score(x_val, y_val), rfr.score(x_test, y_test)
+
+from sklearn.model_selection import GridSearchCV  #Hyperparameter optimisation using RandomizedSearchCV
+
+forest= RandomForestRegressor()
+
+param_grid = {
+    "n_estimators": [3,10,30],
+    "max_depth": [None,4,8],
+    "min_samples_split":[2,4]
+}
+grid_search = GridSearchCV(forest, param_grid, cv=5,
+                          scoring='neg_mean_squared_error',
+                          return_train_score=True)
+grid_search.fit(x_train, y_train)
+
+best_forest=grid_search.best_estimator_
+best_forest
+
+best_forest.score(x_test, y_test)
+
+# Gradient Boosting Regressor
+
+from sklearn.ensemble import GradientBoostingRegressor
+gbr =  GradientBoostingRegressor(n_estimators=250).fit(x_train, y_train)
+
+mse(gbr.predict(x_train), y_train, squared=False), mse(gbr.predict(x_val), y_val, squared=False)
+
+gbr.score(x_train, y_train), gbr.score(x_val, y_val), gbr.score(x_test, y_test)
+
+from sklearn.model_selection import GridSearchCV#Hyperparameter optimisation using RandomizedSearchCV
+
+gb= GradientBoostingRegressor()
+
+param_grid = {
+    "n_estimators": [200,250,350],
+    
+}
+grid_search = GridSearchCV(gb, param_grid, cv=5,
+                          scoring='neg_mean_squared_error',
+                          return_train_score=True)
+grid_search.fit(x_train, y_train)
+
+best_regressor=grid_search.best_estimator_
+best_regressor
+
+best_regressor.score(x_test, y_test)
+
+# XG boost regressor
+
+from xgboost import XGBRegressor
+from sklearn.model_selection import cross_val_score
+from sklearn.metrics import mean_squared_error
+
+xgbr =  XGBRegressor(base_score=None, booster=None, callbacks=None,
+             colsample_bylevel=None, colsample_bynode=None,
+             colsample_bytree=0.5, early_stopping_rounds=None,
+             enable_categorical=False, eval_metric=None, feature_types=None,
+             gamma=0.3, gpu_id=None, grow_policy=None, importance_type=None,
+             interaction_constraints=None, learning_rate=0.1, max_bin=None,
+             max_cat_threshold=None, max_cat_to_onehot=None,
+             max_delta_step=None, max_depth=5, max_leaves=None,
+             min_child_weight=5, monotone_constraints=None,
+             n_estimators=100, n_jobs=None, num_parallel_tree=None,
+             predictor=None, random_state=None).fit(x_train, y_train)
+
+mse(xgbr.predict(x_train), y_train, squared=False), mse(xgbr.predict(x_val), y_val, squared=False)
+
+xgbr.score(x_train, y_train), xgbr.score(x_val, y_val), xgbr.score(x_test, y_test)
+
+from sklearn.model_selection import GridSearchCV #grid search with cross validation (hyperparameter tuning)
+
+xg=  XGBRegressor()
+
+param_grid = {
+     "learning_rate" : [0.01, 0.05, 0.10, ],
+    "max_depth" : [ 3, 4, 5,],
+    "min_child_weight" : [ 5, 7,9 ],
+    "gamma" : [ 0.3, 0.4, 0.6 ],
+    "colsample_bytree" : [0.3, 0.4, 0.5,]
+    
+}
+grid_search = GridSearchCV(xg, param_grid, cv=5,
+                          scoring='neg_mean_squared_error',
+                          return_train_score=True)
+grid_search.fit(x_train, y_train)
+
+best_regressor=grid_search.best_estimator_
+best_regressor
+
+best_regressor.score(x_test, y_test)
+
+# Neural networks
+
+## Tensorflow and Keras
+
+### Simple neural network
+
+pip install tensorflow
+
+pip install keras
+
+from tensorflow.keras.models import Sequential #for getting layers in-order
+from tensorflow.keras.layers import *
+from tensorflow.keras.callbacks import ModelCheckpoint #for saving the best model
+from tensorflow.keras.metrics import RootMeanSquaredError 
+from tensorflow.keras.optimizers import Adam #optimizer
+
+simple_nn = Sequential()
+simple_nn.add(InputLayer((13,)))  # adding layers
+simple_nn.add(Dense(2, 'relu')) 
+simple_nn.add(Dense(1,'linear'))
+
+opt = Adam(learning_rate=0.1)  #Compiling with Adam optimizer and finding root-mean-square as metrics where loss=mse
+cp = ModelCheckpoint('models/simple_nn', save_best_only= True) 
+simple_nn.compile(optimizer=opt, loss='mse', metrics=[RootMeanSquaredError()])
+
+x_train = x_train.astype('float32')  #converting variables into float
+y_train = y_train.astype('float32')
+x_val = x_val.astype('float32')
+y_val = y_val.astype('float32')
+
+simple_nn.fit(x_train, y_train, validation_data= (x_val, y_val), callbacks=[cp], epochs=50) #fitting the model
+
+
+from tensorflow.keras.models import load_model
+
+simple_nn = load_model('models/simple_nn')
+
+mse(simple_nn.predict(x_train), y_train, squared=False), mse(simple_nn.predict(x_val), y_val, squared=False)
+
+
+### Medium Neural networks
+
+medium_nn = Sequential()
+medium_nn.add(InputLayer((13,)))
+medium_nn.add(Dense(32, 'relu'))
+medium_nn.add(Dense(16, 'relu'))
+medium_nn.add(Dense(1,'linear'))
+
+opt = Adam(learning_rate=0.1)
+cp = ModelCheckpoint('models/medium_nn', save_best_only= True)
+medium_nn.compile(optimizer=opt, loss='mse', metrics=[RootMeanSquaredError()])
+medium_nn.fit(x=x_train, y=y_train, validation_data= (x_val, y_val), callbacks=[cp], epochs=100)
+
+
+
+medium_nn = load_model('models/medium_nn')
+mse(medium_nn.predict(x_train), y_train, squared=False), mse(medium_nn.predict(x_val), y_val, squared=False)
+
+
+### Large Neural Networks
+
+large_nn = Sequential()
+large_nn.add(InputLayer((13,)))
+large_nn.add(Dense(32, 'relu'))
+large_nn.add(Dense(32, 'relu'))
+large_nn.add(Dense(32, 'relu'))
+large_nn.add(Dense(32, 'relu'))
+
+large_nn.add(Dense(16, 'relu'))
+large_nn.add(Dense(1,'linear'))
+
+opt = Adam()
+cp = ModelCheckpoint('models/large_nn', save_best_only= True)
+large_nn.compile(optimizer=opt, loss='mse', metrics=[RootMeanSquaredError()])
+large_nn.fit(x=x_train, y=y_train, validation_data= (x_val, y_val), callbacks=[cp], epochs=100)
+
+large_nn = load_model('models/large_nn')
+mse(large_nn.predict(x_train), y_train, squared=False), mse(large_nn.predict(x_val), y_val, squared=False)
